@@ -20,6 +20,7 @@ type Config struct {
 }
 
 type Provider struct {
+	Name    string `yaml:"Name"`
 	Issuer  string `yaml:"Issuer"`
 	KeyFile string `yaml:"KeyFile"`
 }
@@ -49,7 +50,7 @@ func main() {
 			return
 		}
 
-		fmt.Fprint(w, "Auth header:", authHeader)
+		fmt.Fprint(w, "Auth header:", authHeader, "\n")
 
 		if len(authHeader) < 1 {
 			fmt.Fprint(w, "Auth header invalid\n")
@@ -68,6 +69,12 @@ func main() {
 
 		for _, provider := range cfg.Providers {
 			claims, err := provider.verifyToken(rawJwt)
+			if err != nil {
+				fmt.Fprint(w, "error verifying token with provider:", provider.Name, "\n")
+
+				continue
+			}
+
 			fmt.Fprint(w, provider, *claims, err)
 		}
 
@@ -108,6 +115,15 @@ func (p *Provider) verifyToken(raw string) (*jwt.Claims, error) {
 	token, err := jwt.Parse(raw, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected method: %v", token.Header["alg"])
+		}
+
+		issuer, err := token.Claims.GetIssuer()
+		if err != nil {
+			return nil, fmt.Errorf("error getting issuer: %w", err)
+		}
+
+		if issuer != p.Issuer {
+			return nil, fmt.Errorf("issuer mismatch: %s", issuer)
 		}
 
 		return getKeyForToken(token, jwks)
