@@ -27,6 +27,7 @@ func main() {
 	err = yaml.Unmarshal(cfgFile, &cfg)
 	if err != nil {
 		slog.Error("failed to parse config file", "err", err)
+
 		os.Exit(1)
 	}
 
@@ -37,7 +38,9 @@ func main() {
 	for _, key := range cfg.SigningKeys {
 		jwk, err := key.returnJWK()
 		if err != nil {
-			panic(err)
+			slog.Error("failed to get jwk", "err", err)
+
+			os.Exit(1)
 		}
 
 		if jwk == nil {
