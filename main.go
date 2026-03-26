@@ -1,15 +1,9 @@
 package main
 
 import (
-	"bytes"
-	"crypto/rsa"
-	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"os"
 	"strings"
@@ -18,65 +12,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
-	Issuer      string       `yaml:"Issuer"`
-	Providers   []Provider   `yaml:"Providers"`
-	SigningKeys []SigningKey `yaml:"SigningKeys"`
-}
-
-type SigningKey struct {
-	ID        string `yaml:"ID"`
-	Algorithm string `yaml:"Algorithm"`
-	Key       string `yaml:"Key"`
-}
-
-func (s *SigningKey) returnJWK() (map[string]string, error) {
-	jwk := map[string]string{}
-	switch s.Algorithm {
-	case "RS256":
-		keyFile, err := os.ReadFile(s.Key)
-		if err != nil {
-			return nil, err
-		}
-		key, err := jwt.ParseRSAPrivateKeyFromPEM(keyFile)
-		if err != nil {
-			return nil, err
-		}
-
-		jwk["kty"] = "RSA"
-		jwk["kid"] = s.ID
-		jwk["use"] = "sig"
-		jwk["alg"] = s.Algorithm
-		jwk["n"] = base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes())
-
-		buf := new(bytes.Buffer)
-		err = binary.Write(buf, binary.BigEndian, int64(key.PublicKey.E))
-		if err != nil {
-			return nil, err
-		}
-		jwk["e"] = base64.RawURLEncoding.EncodeToString(buf.Bytes())
-	default:
-		return nil, nil
-	}
-
-	return jwk, nil
-}
-
-type Provider struct {
-	Name    string `yaml:"Name"`
-	Issuer  string `yaml:"Issuer"`
-	KeyFile string `yaml:"KeyFile"`
-}
-
 func main() {
 	cfgFile, err := os.ReadFile("config.yml")
 	if err != nil {
-		// Use slog.Error for structured logging instead of panic
 		slog.Error("failed to read config file", "err", err)
+
 		os.Exit(1)
 	}
 
-	// Log that config loaded successfully without revealing secrets.
 	slog.Info("config file loaded", "path", "config.yml")
 
 	var cfg Config
@@ -87,7 +30,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	//Also no need to log cfg
 	slog.Info("config parsed successfully")
 
 	jwksList := []map[string]string{}
@@ -109,7 +51,7 @@ func main() {
 
 	http.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"keys": jwksList,
 		})
 	})
@@ -145,14 +87,13 @@ func main() {
 				slog.Warn("failed to verify token with provider", "provider", provider.Name, "err", err)
 				continue
 			}
-			// Avoid logging token.Header or token.Claims as they contain sensitive data
+
 			slog.Info("token verified successfully", "provider", provider.Name)
 
 			newToken := jwt.NewWithClaims(jwt.GetSigningMethod(cfg.SigningKeys[0].Algorithm), token.Claims)
 			newToken.Claims.(jwt.MapClaims)["iss"] = cfg.Issuer
 			newToken.Header["kid"] = cfg.SigningKeys[0].ID
 
-			// Avoid logging newToken.Header or newToken.Claims as they contain sensitive data.
 			slog.Info("new token created", "provider", provider.Name, "algorithm", cfg.SigningKeys[0].Algorithm)
 
 			var signedToken string
@@ -165,12 +106,14 @@ func main() {
 				if err != nil {
 					slog.Error("failed to read signing key file", "path", cfg.SigningKeys[0].Key, "err", err)
 					http.Error(w, "error reading key file", http.StatusInternalServerError)
+
 					return
 				}
 				key, err := jwt.ParseRSAPrivateKeyFromPEM(keyFile)
 				if err != nil {
 					slog.Error("failed to parse RSA private key", "err", err)
 					http.Error(w, "error parsing key", http.StatusInternalServerError)
+
 					return
 				}
 				signedToken, err = newToken.SignedString(key)
@@ -179,6 +122,7 @@ func main() {
 			if err != nil {
 				slog.Error("failed to sign token", "algorithm", cfg.SigningKeys[0].Algorithm, "err", err)
 				http.Error(w, "error signing token", http.StatusInternalServerError)
+
 				return
 			}
 
@@ -191,100 +135,9 @@ func main() {
 
 		// If we reach here, no provider could verify the token.
 		slog.Warn("no provider could verify the token", "path", req.URL.Path)
+
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
 
 	http.ListenAndServe(":8090", nil)
-}
-
-type JWKS struct {
-	Keys []JWK
-}
-
-type JWK struct {
-	Kid string
-	Kty string
-	N   string
-	E   string
-}
-
-func (p *Provider) verifyToken(raw string) (*jwt.Token, error) {
-	resp, err := http.Get(p.KeyFile)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var jwks JWKS
-	err = json.Unmarshal(body, &jwks)
-	if err != nil {
-		return nil, err
-	}
-
-	token, err := jwt.Parse(raw, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected method: %v", token.Header["alg"])
-		}
-
-		issuer, err := token.Claims.GetIssuer()
-		if err != nil {
-			return nil, fmt.Errorf("error getting issuer: %w", err)
-		}
-
-		if issuer != p.Issuer {
-			return nil, fmt.Errorf("issuer mismatch: %s", issuer)
-		}
-
-		return getKeyForToken(token, jwks)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if !token.Valid {
-		return nil, fmt.Errorf("failed to validate token")
-	}
-
-	return token, nil
-}
-
-func getKeyForToken(token *jwt.Token, jwks JWKS) (interface{}, error) {
-	kid, ok := token.Header["kid"].(string)
-	if !ok {
-		return nil, fmt.Errorf("token mising kid")
-	}
-
-	for _, key := range jwks.Keys {
-		if key.Kid == kid {
-			return getRSAPublicKey(key)
-		}
-	}
-
-	return nil, fmt.Errorf("no matching key found")
-}
-
-func getRSAPublicKey(jwk JWK) (*rsa.PublicKey, error) {
-	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
-	if err != nil {
-		return nil, err
-	}
-	eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
-	if err != nil {
-		return nil, err
-	}
-
-	eInt := 0
-	for _, b := range eBytes {
-		eInt = eInt<<8 + int(b)
-	}
-
-	return &rsa.PublicKey{
-		N: new(big.Int).SetBytes(nBytes),
-		E: eInt,
-	}, nil
 }
