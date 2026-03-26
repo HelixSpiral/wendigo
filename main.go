@@ -16,8 +16,10 @@ import (
 )
 
 type Config struct {
-	Issuer    string     `yaml:"Issuer"`
-	Providers []Provider `yaml:"Providers"`
+	Issuer           string     `yaml:"Issuer"`
+	SigningAlgorithm string     `yaml:"SigningAlgorithm"`
+	SigningKey       string     `yaml:"SigningKey"`
+	Providers        []Provider `yaml:"Providers"`
 }
 
 type Provider struct {
@@ -77,12 +79,32 @@ func main() {
 			}
 			fmt.Fprint(w, provider, token.Header, token.Claims, err)
 
-			newToken := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), token.Claims)
+			newToken := jwt.NewWithClaims(jwt.GetSigningMethod(cfg.SigningAlgorithm), token.Claims)
 			newToken.Claims.(jwt.MapClaims)["iss"] = cfg.Issuer
 
 			fmt.Fprint(w, provider, newToken.Header, newToken.Claims, err)
 
-			signedToken, err := newToken.SignedString([]byte("Testingstring"))
+			var signedToken string
+
+			switch cfg.SigningAlgorithm {
+			case "HS256", "HS284", "HS512":
+				signedToken, err = newToken.SignedString([]byte(cfg.SigningKey))
+			case "RS256", "RS384", "RS512":
+				keyFile, err := os.ReadFile(cfg.SigningKey)
+				if err != nil {
+					fmt.Fprintf(w, "error reading key file", err, "\n")
+
+					return
+				}
+				key, err := jwt.ParseRSAPrivateKeyFromPEM(keyFile)
+				if err != nil {
+					fmt.Fprintf(w, "error parsing key", err, "\n")
+
+					return
+				}
+				signedToken, err = newToken.SignedString(key)
+			}
+
 			if err != nil {
 				fmt.Fprintf(w, "Error signing token", err, "\n")
 
