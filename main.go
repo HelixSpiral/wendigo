@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,10 +18,47 @@ import (
 )
 
 type Config struct {
-	Issuer           string     `yaml:"Issuer"`
-	SigningAlgorithm string     `yaml:"SigningAlgorithm"`
-	SigningKey       string     `yaml:"SigningKey"`
-	Providers        []Provider `yaml:"Providers"`
+	Issuer      string       `yaml:"Issuer"`
+	Providers   []Provider   `yaml:"Providers"`
+	SigningKeys []SigningKey `yaml:"SigningKeys"`
+}
+
+type SigningKey struct {
+	ID        string `yaml:"ID"`
+	Algorithm string `yaml:"Algorithm"`
+	Key       string `yaml:"Key"`
+}
+
+func (s *SigningKey) returnJWK() (map[string]string, error) {
+	jwk := map[string]string{}
+	switch s.Algorithm {
+	case "RS256":
+		keyFile, err := os.ReadFile(s.Key)
+		if err != nil {
+			return nil, err
+		}
+		key, err := jwt.ParseRSAPrivateKeyFromPEM(keyFile)
+		if err != nil {
+			return nil, err
+		}
+
+		jwk["kty"] = "RSA"
+		jwk["kid"] = s.ID
+		jwk["use"] = "sig"
+		jwk["alg"] = s.Algorithm
+		jwk["n"] = base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes())
+
+		buf := new(bytes.Buffer)
+		err = binary.Write(buf, binary.BigEndian, int64(key.PublicKey.E))
+		if err != nil {
+			return nil, err
+		}
+		jwk["e"] = base64.RawURLEncoding.EncodeToString(buf.Bytes())
+	default:
+		return nil, nil
+	}
+
+	return jwk, nil
 }
 
 type Provider struct {
@@ -44,6 +83,30 @@ func main() {
 	}
 
 	fmt.Println(cfg)
+
+	jwksList := []map[string]string{}
+
+	for _, key := range cfg.SigningKeys {
+		jwk, err := key.returnJWK()
+		if err != nil {
+			panic(err)
+		}
+
+		if jwk == nil {
+			continue
+		}
+
+		jwksList = append(jwksList, jwk)
+	}
+
+	fmt.Println(jwksList)
+
+	http.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"keys": jwksList,
+		})
+	})
 
 	http.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
 		authHeader, ok := req.Header["Authorization"]
@@ -79,18 +142,19 @@ func main() {
 			}
 			fmt.Fprint(w, provider, token.Header, token.Claims, err)
 
-			newToken := jwt.NewWithClaims(jwt.GetSigningMethod(cfg.SigningAlgorithm), token.Claims)
+			newToken := jwt.NewWithClaims(jwt.GetSigningMethod(cfg.SigningKeys[0].Algorithm), token.Claims)
 			newToken.Claims.(jwt.MapClaims)["iss"] = cfg.Issuer
+			newToken.Header["kid"] = cfg.SigningKeys[0].ID
 
 			fmt.Fprint(w, provider, newToken.Header, newToken.Claims, err)
 
 			var signedToken string
 
-			switch cfg.SigningAlgorithm {
+			switch cfg.SigningKeys[0].Algorithm {
 			case "HS256", "HS284", "HS512":
-				signedToken, err = newToken.SignedString([]byte(cfg.SigningKey))
+				signedToken, err = newToken.SignedString([]byte(cfg.SigningKeys[0].Key))
 			case "RS256", "RS384", "RS512":
-				keyFile, err := os.ReadFile(cfg.SigningKey)
+				keyFile, err := os.ReadFile(cfg.SigningKeys[0].Key)
 				if err != nil {
 					fmt.Fprintf(w, "error reading key file", err, "\n")
 
