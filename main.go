@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"os"
@@ -70,19 +71,24 @@ type Provider struct {
 func main() {
 	cfgFile, err := os.ReadFile("config.yml")
 	if err != nil {
-		panic(err)
+		// Use slog.Error for structured logging instead of panic
+		slog.Error("failed to read config file", "err", err)
+		os.Exit(1)
 	}
 
-	fmt.Println(string(cfgFile))
+	// Log that config loaded successfully without revealing secrets.
+	slog.Info("config file loaded", "path", "config.yml")
 
 	var cfg Config
 
 	err = yaml.Unmarshal(cfgFile, &cfg)
 	if err != nil {
-		panic(err)
+		slog.Error("failed to parse config file", "err", err)
+		os.Exit(1)
 	}
 
-	fmt.Println(cfg)
+	//Also no need to log cfg
+	slog.Info("config parsed successfully")
 
 	jwksList := []map[string]string{}
 
@@ -111,23 +117,23 @@ func main() {
 	http.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
 		authHeader, ok := req.Header["Authorization"]
 		if !ok {
-			fmt.Fprint(w, "No auth header\n")
-
+			slog.Warn("Request missing authorization header", "path", req.URL.Path)
+			http.Error(w, "No auth header", http.StatusUnauthorized)
 			return
 		}
-
-		fmt.Fprint(w, "Auth header:", authHeader, "\n")
 
 		if len(authHeader) < 1 {
-			fmt.Fprint(w, "Auth header invalid\n")
-
+			slog.Warn("Authorization header is empty", "path", req.URL.Path)
+			http.Error(w, "Auth header invalid", http.StatusUnauthorized)
 			return
 		}
+
+		slog.Info("authorization header received", "path", req.URL.Path)
 
 		headerSplit := strings.Split(authHeader[0], " ")
 		if len(headerSplit) < 2 {
-			fmt.Fprint(w, "Auth header invalid\n")
-
+			slog.Warn("Authorization header format invalid", "path", req.URL.Path)
+			http.Error(w, "Auth header invalid", http.StatusUnauthorized)
 			return
 		}
 
@@ -136,17 +142,18 @@ func main() {
 		for _, provider := range cfg.Providers {
 			token, err := provider.verifyToken(rawJwt)
 			if err != nil {
-				fmt.Fprint(w, "error verifying token with provider:", provider.Name, "\n")
-
+				slog.Warn("failed to verify token with provider", "provider", provider.Name, "err", err)
 				continue
 			}
-			fmt.Fprint(w, provider, token.Header, token.Claims, err)
+			// Avoid logging token.Header or token.Claims as they contain sensitive data
+			slog.Info("token verified successfully", "provider", provider.Name)
 
 			newToken := jwt.NewWithClaims(jwt.GetSigningMethod(cfg.SigningKeys[0].Algorithm), token.Claims)
 			newToken.Claims.(jwt.MapClaims)["iss"] = cfg.Issuer
 			newToken.Header["kid"] = cfg.SigningKeys[0].ID
 
-			fmt.Fprint(w, provider, newToken.Header, newToken.Claims, err)
+			// Avoid logging newToken.Header or newToken.Claims as they contain sensitive data.
+			slog.Info("new token created", "provider", provider.Name, "algorithm", cfg.SigningKeys[0].Algorithm)
 
 			var signedToken string
 
@@ -156,30 +163,35 @@ func main() {
 			case "RS256", "RS384", "RS512":
 				keyFile, err := os.ReadFile(cfg.SigningKeys[0].Key)
 				if err != nil {
-					fmt.Fprintf(w, "error reading key file", err, "\n")
-
+					slog.Error("failed to read signing key file", "path", cfg.SigningKeys[0].Key, "err", err)
+					http.Error(w, "error reading key file", http.StatusInternalServerError)
 					return
 				}
 				key, err := jwt.ParseRSAPrivateKeyFromPEM(keyFile)
 				if err != nil {
-					fmt.Fprintf(w, "error parsing key", err, "\n")
-
+					slog.Error("failed to parse RSA private key", "err", err)
+					http.Error(w, "error parsing key", http.StatusInternalServerError)
 					return
 				}
 				signedToken, err = newToken.SignedString(key)
 			}
 
 			if err != nil {
-				fmt.Fprintf(w, "Error signing token", err, "\n")
-
+				slog.Error("failed to sign token", "algorithm", cfg.SigningKeys[0].Algorithm, "err", err)
+				http.Error(w, "error signing token", http.StatusInternalServerError)
 				return
 			}
 
-			fmt.Fprint(w, signedToken, "\n")
+			slog.Info("token signed and returned successfully", "provider", provider.Name)
+
+			fmt.Fprintln(w, signedToken)
 
 			return
 		}
 
+		// If we reach here, no provider could verify the token.
+		slog.Warn("no provider could verify the token", "path", req.URL.Path)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
 
 	http.ListenAndServe(":8090", nil)
