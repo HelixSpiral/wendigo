@@ -72,19 +72,19 @@ func main() {
 	cfgFile, err := os.ReadFile("config.yml")
 	if err != nil {
 		// Use slog.Error for structured logging instead of panic
-		slog.Error("failed to read config file","err",err)
+		slog.Error("failed to read config file", "err", err)
 		os.Exit(1)
 	}
 
 	// Log that config loaded successfully without revealing secrets.
-	slog.Info("config file loaded","path","config.yml")
+	slog.Info("config file loaded", "path", "config.yml")
 
 	var cfg Config
 
 	err = yaml.Unmarshal(cfgFile, &cfg)
 	if err != nil {
 		slog.Error("failed to parse config file", "err", err)
-    	os.Exit(1)
+		os.Exit(1)
 	}
 
 	//Also no need to log cfg
@@ -117,24 +117,23 @@ func main() {
 	http.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
 		authHeader, ok := req.Header["Authorization"]
 		if !ok {
-			slog.Warn("Request missing authorization header","path",req.URL.Path)
-			http.Error(w,"No auth header",http.StatusUnauthorized)
+			slog.Warn("Request missing authorization header", "path", req.URL.Path)
+			http.Error(w, "No auth header", http.StatusUnauthorized)
 			return
 		}
-
 
 		if len(authHeader) < 1 {
-			slog.Warn("Authorization header is empty","path",req.URL.Path)
-			http.Error(w,"Auth header invalid",http.StatusUnauthorized)
+			slog.Warn("Authorization header is empty", "path", req.URL.Path)
+			http.Error(w, "Auth header invalid", http.StatusUnauthorized)
 			return
 		}
 
-		slog.Info("authorization header received","path",req.URL.Path)
+		slog.Info("authorization header received", "path", req.URL.Path)
 
 		headerSplit := strings.Split(authHeader[0], " ")
 		if len(headerSplit) < 2 {
-			slog.Warn("Authorization header format invalid","path",req.URL.Path)
-			http.Error(w,"Auth header invalid",http.StatusUnauthorized)
+			slog.Warn("Authorization header format invalid", "path", req.URL.Path)
+			http.Error(w, "Auth header invalid", http.StatusUnauthorized)
 			return
 		}
 
@@ -144,17 +143,17 @@ func main() {
 			token, err := provider.verifyToken(rawJwt)
 			if err != nil {
 				slog.Warn("failed to verify token with provider", "provider", provider.Name, "err", err)
-       			continue
+				continue
 			}
 			// Avoid logging token.Header or token.Claims as they contain sensitive data
-    		slog.Info("token verified successfully", "provider", provider.Name)
+			slog.Info("token verified successfully", "provider", provider.Name)
 
 			newToken := jwt.NewWithClaims(jwt.GetSigningMethod(cfg.SigningKeys[0].Algorithm), token.Claims)
 			newToken.Claims.(jwt.MapClaims)["iss"] = cfg.Issuer
 			newToken.Header["kid"] = cfg.SigningKeys[0].ID
 
 			// Avoid logging newToken.Header or newToken.Claims as they contain sensitive data.
-    		slog.Info("new token created", "provider", provider.Name, "algorithm", cfg.SigningAlgorithm)
+			slog.Info("new token created", "provider", provider.Name, "algorithm", cfg.SigningKeys[0].Algorithm)
 
 			var signedToken string
 
@@ -164,23 +163,23 @@ func main() {
 			case "RS256", "RS384", "RS512":
 				keyFile, err := os.ReadFile(cfg.SigningKeys[0].Key)
 				if err != nil {
-					slog.Error("failed to read signing key file", "path", cfg.SigningKey, "err", err)
-           			 http.Error(w, "error reading key file", http.StatusInternalServerError)
-            		return
+					slog.Error("failed to read signing key file", "path", cfg.SigningKeys[0].Key, "err", err)
+					http.Error(w, "error reading key file", http.StatusInternalServerError)
+					return
 				}
 				key, err := jwt.ParseRSAPrivateKeyFromPEM(keyFile)
 				if err != nil {
 					slog.Error("failed to parse RSA private key", "err", err)
-            		http.Error(w, "error parsing key", http.StatusInternalServerError)
-           			 return
+					http.Error(w, "error parsing key", http.StatusInternalServerError)
+					return
 				}
 				signedToken, err = newToken.SignedString(key)
 			}
 
 			if err != nil {
-				slog.Error("failed to sign token", "algorithm", cfg.SigningAlgorithm, "err", err)
-       			http.Error(w, "error signing token", http.StatusInternalServerError)
-       			return
+				slog.Error("failed to sign token", "algorithm", cfg.SigningKeys[0].Algorithm, "err", err)
+				http.Error(w, "error signing token", http.StatusInternalServerError)
+				return
 			}
 
 			slog.Info("token signed and returned successfully", "provider", provider.Name)
