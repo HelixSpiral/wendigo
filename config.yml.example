@@ -1,0 +1,13 @@
+# Issuer to use in the JWT responses
+Issuer: testingIssuer.com
+# List of keys used for validation for upstream clients
+# First key is always used for signing, all keys provided are present in the JWKS file
+SigningKeys:
+  - ID: test-key-1
+    Algorithm: RS256
+    Key: private.key
+# List of providers allowed to get keys from this service
+Providers:
+  - Name: token.dev
+    Issuer: testing.issuer.svc.cluster.lan
+    KeyFile: https://token.dev/jwks/keys.json
