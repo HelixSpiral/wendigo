@@ -16,6 +16,7 @@ import (
 )
 
 type Config struct {
+	Issuer    string     `yaml:"Issuer"`
 	Providers []Provider `yaml:"Providers"`
 }
 
@@ -68,14 +69,29 @@ func main() {
 		rawJwt := headerSplit[1]
 
 		for _, provider := range cfg.Providers {
-			claims, err := provider.verifyToken(rawJwt)
+			token, err := provider.verifyToken(rawJwt)
 			if err != nil {
 				fmt.Fprint(w, "error verifying token with provider:", provider.Name, "\n")
 
 				continue
 			}
+			fmt.Fprint(w, provider, token.Header, token.Claims, err)
 
-			fmt.Fprint(w, provider, *claims, err)
+			newToken := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), token.Claims)
+			newToken.Claims.(jwt.MapClaims)["iss"] = cfg.Issuer
+
+			fmt.Fprint(w, provider, newToken.Header, newToken.Claims, err)
+
+			signedToken, err := newToken.SignedString([]byte("Testingstring"))
+			if err != nil {
+				fmt.Fprintf(w, "Error signing token", err, "\n")
+
+				return
+			}
+
+			fmt.Fprint(w, signedToken, "\n")
+
+			return
 		}
 
 	})
@@ -94,7 +110,7 @@ type JWK struct {
 	E   string
 }
 
-func (p *Provider) verifyToken(raw string) (*jwt.Claims, error) {
+func (p *Provider) verifyToken(raw string) (*jwt.Token, error) {
 	resp, err := http.Get(p.KeyFile)
 	if err != nil {
 		return nil, err
@@ -136,7 +152,7 @@ func (p *Provider) verifyToken(raw string) (*jwt.Claims, error) {
 		return nil, fmt.Errorf("failed to validate token")
 	}
 
-	return &token.Claims, nil
+	return token, nil
 }
 
 func getKeyForToken(token *jwt.Token, jwks JWKS) (interface{}, error) {
