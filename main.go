@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"gopkg.in/yaml.v3"
 )
@@ -85,6 +86,14 @@ func main() {
 		rawJwt := headerSplit[1]
 
 		for _, provider := range cfg.Providers {
+			jwks, err := keyfunc.NewDefault([]string{provider.KeyFile})
+			if err != nil {
+				slog.Warn("failed to get jwks for provider", "provider", provider.Name, "err", err)
+				continue
+			}
+
+			provider.Keyfunc = jwks.Keyfunc
+
 			token, err := provider.verifyToken(rawJwt)
 			if err != nil {
 				slog.Warn("failed to verify token with provider", "provider", provider.Name, "err", err)
