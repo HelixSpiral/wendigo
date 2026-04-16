@@ -13,10 +13,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type tokenResponse struct {
+	Token   string `json:"access_token"`
+	Type    string `json:"token_type"`
+	Expiers int64  `json:"expires_in"`
+}
+
 func main() {
 	cfgFile, err := os.ReadFile("config.yml")
 	if err != nil {
-		slog.Error("failed to read config file", "err", err)
+		slog.Error("failed to read config file", "error", err)
 
 		os.Exit(1)
 	}
@@ -27,7 +33,7 @@ func main() {
 
 	err = yaml.Unmarshal(cfgFile, &cfg)
 	if err != nil {
-		slog.Error("failed to parse config file", "err", err)
+		slog.Error("failed to parse config file", "error", err)
 
 		os.Exit(1)
 	}
@@ -39,7 +45,7 @@ func main() {
 	for _, key := range cfg.SigningKeys {
 		jwk, err := key.returnJWK()
 		if err != nil {
-			slog.Error("failed to get jwk", "err", err)
+			slog.Error("failed to get jwk", "error", err)
 
 			os.Exit(1)
 		}
@@ -88,7 +94,7 @@ func main() {
 		for _, provider := range cfg.Providers {
 			jwks, err := keyfunc.NewDefault([]string{provider.KeyFile})
 			if err != nil {
-				slog.Warn("failed to get jwks for provider", "provider", provider.Name, "err", err)
+				slog.Warn("failed to get jwks for provider", "provider", provider.Name, "error", err)
 				continue
 			}
 
@@ -96,7 +102,7 @@ func main() {
 
 			token, err := provider.verifyToken(rawJwt)
 			if err != nil {
-				slog.Warn("failed to verify token with provider", "provider", provider.Name, "err", err)
+				slog.Warn("failed to verify token with provider", "provider", provider.Name, "error", err)
 				continue
 			}
 
@@ -116,14 +122,14 @@ func main() {
 			case "RS256", "RS384", "RS512":
 				keyFile, err := os.ReadFile(cfg.SigningKeys[0].Key)
 				if err != nil {
-					slog.Error("failed to read signing key file", "path", cfg.SigningKeys[0].Key, "err", err)
+					slog.Error("failed to read signing key file", "path", cfg.SigningKeys[0].Key, "error", err)
 					http.Error(w, "error reading key file", http.StatusInternalServerError)
 
 					return
 				}
 				key, err := jwt.ParseRSAPrivateKeyFromPEM(keyFile)
 				if err != nil {
-					slog.Error("failed to parse RSA private key", "err", err)
+					slog.Error("failed to parse RSA private key", "error", err)
 					http.Error(w, "error parsing key", http.StatusInternalServerError)
 
 					return
@@ -131,16 +137,29 @@ func main() {
 				signedToken, err = newToken.SignedString(key)
 			}
 
+			returnMessage := &tokenResponse{
+				Token:   signedToken,
+				Type:    "Bearer",
+				Expiers: 600,
+			}
+
 			if err != nil {
-				slog.Error("failed to sign token", "algorithm", cfg.SigningKeys[0].Algorithm, "err", err)
+				slog.Error("failed to sign token", "algorithm", cfg.SigningKeys[0].Algorithm, "error", err)
 				http.Error(w, "error signing token", http.StatusInternalServerError)
 
 				return
 			}
 
-			slog.Info("token signed and returned successfully", "provider", provider.Name)
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(returnMessage); err != nil {
+				slog.Error("error encoding response", "error", err)
 
-			fmt.Fprintln(w, signedToken)
+				http.Error(w, "error returning token", http.StatusInternalServerError)
+
+				return
+			}
+
+			slog.Info("token signed and returned successfully", "provider", provider.Name)
 
 			return
 		}
