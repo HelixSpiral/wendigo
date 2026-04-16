@@ -26,12 +26,6 @@ type SigningKey struct {
 	Key       string `yaml:"Key"`
 }
 
-type NewServerInputConfig struct {
-	Issuer      string
-	Providers   []Provider
-	SigningKeys []SigningKey
-}
-
 func New(cfg *config.Config) *Server {
 	var providers []Provider
 	var signingKeys []SigningKey

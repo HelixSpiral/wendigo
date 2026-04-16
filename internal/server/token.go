@@ -17,17 +17,6 @@ type tokenResponse struct {
 	Expiers int64  `json:"expires_in"`
 }
 
-type JWKS struct {
-	Keys []JWK
-}
-
-type JWK struct {
-	Kid string
-	Kty string
-	N   string
-	E   string
-}
-
 func (s *Server) TokenHandler(w http.ResponseWriter, req *http.Request) {
 	authHeader, ok := req.Header["Authorization"]
 	if !ok {
