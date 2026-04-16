@@ -26,6 +26,17 @@ type Provider struct {
 	Keyfunc jwt.Keyfunc
 }
 
+type JWKS struct {
+	Keys []JWK
+}
+
+type JWK struct {
+	Kid string
+	Kty string
+	N   string
+	E   string
+}
+
 func (p *Provider) verifyToken(raw string) (*jwt.Token, error) {
 	resp, err := http.Get(p.KeyFile)
 	if err != nil {
