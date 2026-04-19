@@ -113,6 +113,20 @@ func (s *Server) TokenHandler(w http.ResponseWriter, req *http.Request) {
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
+func (s *Server) JwksHandler(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"keys": s.jwks,
+	}); err != nil {
+		slog.Error("error encoding response", "error", err)
+
+		http.Error(w, "error returning jwks list", http.StatusInternalServerError)
+
+		return
+	}
+
+}
+
 func (s *Server) verifyToken(p Provider, raw string) (*jwt.Token, error) {
 	token, err := jwt.Parse(raw, p.Keyfunc)
 	if err != nil {
