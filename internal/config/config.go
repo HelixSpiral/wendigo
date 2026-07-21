@@ -1,6 +1,9 @@
 package config
 
 type Config struct {
+	BindAddress string `yaml:"BindAddress"`
+	BindPort    int    `yaml:"BindPort"`
+
 	Issuer      string       `yaml:"Issuer"`
 	Providers   []Provider   `yaml:"Providers"`
 	SigningKeys []SigningKey `yaml:"SigningKeys"`

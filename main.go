@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -42,7 +43,7 @@ func main() {
 	http.HandleFunc("/.well-known/jwks.json", srv.JwksHandler)
 
 	httpSrv := &http.Server{
-		Addr: ":8090",
+		Addr: fmt.Sprintf("%s:%d", cfg.BindAddress, cfg.BindPort),
 	}
 
 	sigTerm := make(chan os.Signal, 1)
