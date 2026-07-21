@@ -1,0 +1,9 @@
+# Ignore config
+config.yml
+
+# Ignore any key files
+*.key
+*.pem
+
+# Ignore any compiled binaries
+*.exe
