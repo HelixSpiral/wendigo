@@ -14,7 +14,7 @@ import (
 type tokenResponse struct {
 	Token   string `json:"access_token"`
 	Type    string `json:"token_type"`
-	Expiers int64  `json:"expires_in"`
+	Expires int64  `json:"expires_in"`
 }
 
 func (s *Server) TokenHandler(w http.ResponseWriter, req *http.Request) {
@@ -83,7 +83,7 @@ func (s *Server) TokenHandler(w http.ResponseWriter, req *http.Request) {
 		returnMessage := &tokenResponse{
 			Token:   signedToken,
 			Type:    "Bearer",
-			Expiers: 600,
+			Expires: 600,
 		}
 
 		if err != nil {
