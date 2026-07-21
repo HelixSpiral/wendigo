@@ -1,3 +1,5 @@
+# BindAddress: ""
+BindPort: 8090
 # Issuer to use in the JWT responses
 Issuer: testingIssuer.com
 # List of keys used for validation for upstream clients
