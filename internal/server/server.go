@@ -24,9 +24,10 @@ type Provider struct {
 }
 
 type SigningKey struct {
-	ID        string `yaml:"ID"`
-	Algorithm string `yaml:"Algorithm"`
-	Key       string `yaml:"Key"`
+	ID         string `yaml:"ID"`
+	Algorithm  string `yaml:"Algorithm"`
+	Key        string `yaml:"Key"`
+	Expiration int64  `yaml:"Expiration"`
 }
 
 func New(cfg *config.Config) *Server {
@@ -50,9 +51,10 @@ func New(cfg *config.Config) *Server {
 
 	for _, key := range cfg.SigningKeys {
 		signingKeys = append(signingKeys, SigningKey{
-			ID:        key.ID,
-			Algorithm: key.Algorithm,
-			Key:       key.Key,
+			ID:         key.ID,
+			Algorithm:  key.Algorithm,
+			Key:        key.Key,
+			Expiration: key.Expiration,
 		})
 
 		jwk, err := jwks.FromSigningKey(key)

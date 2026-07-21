@@ -16,7 +16,8 @@ type Provider struct {
 }
 
 type SigningKey struct {
-	ID        string `yaml:"ID"`
-	Algorithm string `yaml:"Algorithm"`
-	Key       string `yaml:"Key"`
+	ID         string `yaml:"ID"`
+	Algorithm  string `yaml:"Algorithm"`
+	Key        string `yaml:"Key"`
+	Expiration int64  `yaml:"Expiration"`
 }
