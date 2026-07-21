@@ -83,7 +83,7 @@ func (s *Server) TokenHandler(w http.ResponseWriter, req *http.Request) {
 		returnMessage := &tokenResponse{
 			Token:   signedToken,
 			Type:    "Bearer",
-			Expires: 600,
+			Expires: s.signingKeys[0].Expiration,
 		}
 
 		if err != nil {
