@@ -36,6 +36,11 @@ func main() {
 
 	slog.Info("config parsed successfully")
 
+	// Default value for BindPort
+	if cfg.BindPort == 0 {
+		cfg.BindPort = 8090
+	}
+
 	srv := server.New(&cfg)
 
 	slog.Info("server created successfully")
